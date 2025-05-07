@@ -17,7 +17,7 @@ function decodeText(encoded: string): string {
 function createButtonDecoration(): vscode.TextEditorDecorationType {
     return vscode.window.createTextEditorDecorationType({
         after: {
-            contentText: "[🔐 悬停查看]",
+            contentText: "[🔐 已加密]",
             backgroundColor: new vscode.ThemeColor('button.background'),
             color: new vscode.ThemeColor('button.foreground'),
             margin: '0 0 0 3px',
@@ -95,14 +95,12 @@ function provideMaskHover(document: vscode.TextDocument, position: vscode.Positi
         const match = text.match(/<!MASK-SMITH:([^>]+)>/);
         if (match) {
             const encoded = match[1];
-            const decoded = decodeText(encoded);
             
             // 创建带有复制按钮的Markdown内容
             const mdString = new vscode.MarkdownString();
             mdString.isTrusted = true; // 允许命令链接
             mdString.supportHtml = true; // 允许HTML
             
-            mdString.appendMarkdown(`${decoded}\n\n`);
             mdString.appendMarkdown(`[📋 复制到剪贴板](command:mask-smith.copyContent?${encodeURIComponent(JSON.stringify(encoded))})`);
             
             return new vscode.Hover(mdString);
