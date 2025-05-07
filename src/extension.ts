@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 // 常量
 const MASK_PATTERN = /<!MASK-SMITH:([^>]+)>/g;
 const DEBOUNCE_DELAY = 300; // 防抖延迟（毫秒）
+const SUPPORTED_LANGUAGES = ['plaintext', 'markdown']; // 支持的文件类型
 
 // 用于存储当前显示原文的装饰器
 let currentDecoration: vscode.TextEditorDecorationType | undefined;
@@ -94,6 +95,12 @@ async function maskSelection() {
         return;
     }
 
+    // 检查文件类型
+    if (!SUPPORTED_LANGUAGES.includes(editor.document.languageId)) {
+        vscode.window.showWarningMessage('Mask Smith 插件仅支持 txt 和 markdown 文件');
+        return;
+    }
+
     const selection = editor.selection;
     if (selection.isEmpty) {
         vscode.window.showWarningMessage('请先选择要加密的文本');
@@ -152,7 +159,7 @@ export function activate(context: vscode.ExtensionContext) {
     let copyCommand = vscode.commands.registerCommand('mask-smith.copyContent', copyDecodedContent);
 
     // 注册Hover Provider
-    const hoverProvider = vscode.languages.registerHoverProvider('*', {
+    const hoverProvider = vscode.languages.registerHoverProvider(SUPPORTED_LANGUAGES, {
         provideHover(document, position) {
             return provideMaskHover(document, position);
         }
@@ -165,7 +172,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // 监听编辑器变化，更新装饰器
     const onActiveEditorChanged = vscode.window.onDidChangeActiveTextEditor(editor => {
-        if (editor) {
+        if (editor && SUPPORTED_LANGUAGES.includes(editor.document.languageId)) {
             updateDecoration(editor);
         }
     });
@@ -173,14 +180,16 @@ export function activate(context: vscode.ExtensionContext) {
     // 监听文档内容变化，使用防抖更新装饰器
     const onTextChanged = vscode.workspace.onDidChangeTextDocument(event => {
         const editor = vscode.window.activeTextEditor;
-        if (editor && event.document === editor.document) {
+        if (editor && event.document === editor.document &&
+            SUPPORTED_LANGUAGES.includes(event.document.languageId)) {
             debouncedUpdateDecoration(editor);
         }
     });
 
     // 监听编辑器可见范围变化
     const onVisibleRangesChanged = vscode.window.onDidChangeTextEditorVisibleRanges(event => {
-        if (event.textEditor === vscode.window.activeTextEditor) {
+        if (event.textEditor === vscode.window.activeTextEditor &&
+            SUPPORTED_LANGUAGES.includes(event.textEditor.document.languageId)) {
             debouncedUpdateDecoration(event.textEditor);
         }
     });
