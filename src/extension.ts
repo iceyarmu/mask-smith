@@ -17,7 +17,7 @@ function decodeText(encoded: string): string {
 function createButtonDecoration(): vscode.TextEditorDecorationType {
     return vscode.window.createTextEditorDecorationType({
         after: {
-            contentText: "🔐悬停查看",
+            contentText: "[🔐 悬停查看]",
             backgroundColor: new vscode.ThemeColor('button.background'),
             color: new vscode.ThemeColor('button.foreground'),
             margin: '0 0 0 3px',
@@ -80,6 +80,13 @@ async function maskSelection() {
     updateDecoration(editor);
 }
 
+// 复制解密内容到剪贴板
+async function copyDecodedContent(encoded: string) {
+    const decoded = decodeText(encoded);
+    await vscode.env.clipboard.writeText(decoded);
+    vscode.window.showInformationMessage('已复制到剪贴板');
+}
+
 // 处理加密文本的Hover显示
 function provideMaskHover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | null {
     const range = document.getWordRangeAtPosition(position, /<!MASK-SMITH:[^>]+>/);
@@ -89,7 +96,16 @@ function provideMaskHover(document: vscode.TextDocument, position: vscode.Positi
         if (match) {
             const encoded = match[1];
             const decoded = decodeText(encoded);
-            return new vscode.Hover(decoded);
+            
+            // 创建带有复制按钮的Markdown内容
+            const mdString = new vscode.MarkdownString();
+            mdString.isTrusted = true; // 允许命令链接
+            mdString.supportHtml = true; // 允许HTML
+            
+            mdString.appendMarkdown(`${decoded}\n\n`);
+            mdString.appendMarkdown(`[📋 复制到剪贴板](command:mask-smith.copyContent?${encodeURIComponent(JSON.stringify(encoded))})`);
+            
+            return new vscode.Hover(mdString);
         }
     }
     return null;
@@ -100,6 +116,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     // 注册Mask Selection命令
     let disposable = vscode.commands.registerCommand('mask-smith.maskSelection', maskSelection);
+
+    // 注册复制内容命令
+    let copyCommand = vscode.commands.registerCommand('mask-smith.copyContent', copyDecodedContent);
 
     // 注册Hover Provider
     const hoverProvider = vscode.languages.registerHoverProvider('*', {
@@ -120,7 +139,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(disposable, hoverProvider, onActiveEditorChanged);
+    context.subscriptions.push(disposable, hoverProvider, onActiveEditorChanged, copyCommand);
 }
 
 export function deactivate() {
