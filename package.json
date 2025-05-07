@@ -11,8 +11,8 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onStartupFinished",
-    "onLanguage:*"
+    "onLanguage:plaintext",
+    "onLanguage:markdown"
   ],
   "contributes": {
     "commands": [
