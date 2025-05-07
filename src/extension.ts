@@ -17,7 +17,7 @@ function decodeText(encoded: string): string {
 function createButtonDecoration(): vscode.TextEditorDecorationType {
     return vscode.window.createTextEditorDecorationType({
         after: {
-            contentText: "悬停查看",
+            contentText: "🔐悬停查看",
             backgroundColor: new vscode.ThemeColor('button.background'),
             color: new vscode.ThemeColor('button.foreground'),
             margin: '0 0 0 3px',
@@ -80,13 +80,47 @@ async function maskSelection() {
     updateDecoration(editor);
 }
 
+// 处理加密文本的Hover显示
+function provideMaskHover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | null {
+    const range = document.getWordRangeAtPosition(position, /<!MASK-SMITH:[^>]+>/);
+    if (range) {
+        const text = document.getText(range);
+        const match = text.match(/<!MASK-SMITH:([^>]+)>/);
+        if (match) {
+            const encoded = match[1];
+            const decoded = decodeText(encoded);
+            return new vscode.Hover(decoded);
+        }
+    }
+    return null;
+}
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('mask-smith插件已激活！');
 
     // 注册Mask Selection命令
     let disposable = vscode.commands.registerCommand('mask-smith.maskSelection', maskSelection);
 
-    context.subscriptions.push(disposable);
+    // 注册Hover Provider
+    const hoverProvider = vscode.languages.registerHoverProvider('*', {
+        provideHover(document, position) {
+            return provideMaskHover(document, position);
+        }
+    });
+
+    // 初始化当前编辑器的装饰器
+    if (vscode.window.activeTextEditor) {
+        updateDecoration(vscode.window.activeTextEditor);
+    }
+
+    // 监听编辑器变化，更新装饰器
+    const onActiveEditorChanged = vscode.window.onDidChangeActiveTextEditor(editor => {
+        if (editor) {
+            updateDecoration(editor);
+        }
+    });
+
+    context.subscriptions.push(disposable, hoverProvider, onActiveEditorChanged);
 }
 
 export function deactivate() {
