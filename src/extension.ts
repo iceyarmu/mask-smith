@@ -1,7 +1,23 @@
 import * as vscode from 'vscode';
 
+// 常量
+const MASK_PATTERN = /<!MASK-SMITH:([^>]+)>/g;
+const DEBOUNCE_DELAY = 300; // 防抖延迟（毫秒）
+
 // 用于存储当前显示原文的装饰器
 let currentDecoration: vscode.TextEditorDecorationType | undefined;
+
+// 防抖函数
+function debounce<T extends (...args: any[]) => any>(
+    func: T,
+    delay: number
+): (...args: Parameters<T>) => void {
+    let timeoutId: NodeJS.Timeout;
+    return (...args: Parameters<T>) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => func(...args), delay);
+    };
+}
 
 // Base64编码函数
 function encodeText(text: string): string {
@@ -13,46 +29,63 @@ function decodeText(encoded: string): string {
     return Buffer.from(encoded, 'base64').toString('utf8');
 }
 
-// 创建按钮装饰器
-function createButtonDecoration(): vscode.TextEditorDecorationType {
-    return vscode.window.createTextEditorDecorationType({
-        after: {
-            contentText: "[🔐 已加密]",
-            backgroundColor: new vscode.ThemeColor('button.background'),
-            color: new vscode.ThemeColor('button.foreground'),
-            margin: '0 0 0 3px',
-            width: 'fit-content',
-            height: '20px'
-        },
-        textDecoration: 'none; display: none;' // 隐藏原文本
-    });
+// 获取按钮装饰器（单例模式）
+function getcurrentDecoration(): vscode.TextEditorDecorationType {
+    if (!currentDecoration) {
+        currentDecoration = vscode.window.createTextEditorDecorationType({
+            after: {
+                contentText: "[🔐 已加密]",
+                backgroundColor: new vscode.ThemeColor('button.background'),
+                color: new vscode.ThemeColor('button.foreground'),
+                margin: '0 0 0 3px',
+                width: 'fit-content',
+                height: '20px'
+            },
+            textDecoration: 'none; display: none;' // 隐藏原文本
+        });
+    }
+    return currentDecoration;
 }
 
-// 更新文档中所有加密文本的装饰器
+// 优化的装饰器更新函数
 function updateDecoration(editor: vscode.TextEditor) {
-    // 移除之前的装饰器
-    if (currentDecoration) {
-        currentDecoration.dispose();
-        currentDecoration = undefined;
+    // 如果编辑器无效，直接返回
+    if (!editor || !editor.document) {
+        return;
     }
 
-    const text = editor.document.getText();
-    const regex = /<!MASK-SMITH:([^>]+)>/g;
+    const visibleRanges = editor.visibleRanges;
     const ranges: vscode.Range[] = [];
-    let match;
 
-    while ((match = regex.exec(text)) !== null) {
-        const startPos = editor.document.positionAt(match.index);
-        const endPos = editor.document.positionAt(match.index + match[0].length);
-        ranges.push(new vscode.Range(startPos, endPos));
+    // 仅扫描可见区域
+    for (const visibleRange of visibleRanges) {
+        const text = editor.document.getText(visibleRange);
+        let match;
+        while ((match = MASK_PATTERN.exec(text)) !== null) {
+            const startPos = editor.document.positionAt(
+                match.index + editor.document.offsetAt(visibleRange.start)
+            );
+            const endPos = editor.document.positionAt(
+                match.index + match[0].length + editor.document.offsetAt(visibleRange.start)
+            );
+            ranges.push(new vscode.Range(startPos, endPos));
+        }
+        MASK_PATTERN.lastIndex = 0; // 重置正则表达式
     }
 
-    // 创建并应用按钮装饰器
+    // 复用或创建装饰器
+    const decoration = getcurrentDecoration();
+    
+    // 仅当有变化时才更新装饰
     if (ranges.length > 0) {
-        currentDecoration = createButtonDecoration();
-        editor.setDecorations(currentDecoration, ranges);
+        editor.setDecorations(decoration, ranges);
+    } else {
+        editor.setDecorations(decoration, []);
     }
 }
+
+// 防抖后的装饰器更新函数
+const debouncedUpdateDecoration = debounce(updateDecoration, DEBOUNCE_DELAY);
 
 // 加密选中的文本
 async function maskSelection() {
@@ -137,11 +170,18 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    // 监听文档内容变化，更新装饰器
+    // 监听文档内容变化，使用防抖更新装饰器
     const onTextChanged = vscode.workspace.onDidChangeTextDocument(event => {
         const editor = vscode.window.activeTextEditor;
         if (editor && event.document === editor.document) {
-            updateDecoration(editor);
+            debouncedUpdateDecoration(editor);
+        }
+    });
+
+    // 监听编辑器可见范围变化
+    const onVisibleRangesChanged = vscode.window.onDidChangeTextEditorVisibleRanges(event => {
+        if (event.textEditor === vscode.window.activeTextEditor) {
+            debouncedUpdateDecoration(event.textEditor);
         }
     });
 
@@ -150,7 +190,8 @@ export function activate(context: vscode.ExtensionContext) {
         hoverProvider,
         onActiveEditorChanged,
         copyCommand,
-        onTextChanged
+        onTextChanged,
+        onVisibleRangesChanged
     );
 }
 
