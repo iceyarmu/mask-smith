@@ -10,6 +10,10 @@
     "Other"
   ],
   "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onLanguage:*"
+  ],
   "contributes": {
     "commands": [
       {
@@ -18,6 +22,15 @@
         "category": "Mask Smith"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "mask-smith.maskSelection",
+          "when": "editorHasSelection",
+          "group": "1_modification"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "mask-smith.maskSelection",
