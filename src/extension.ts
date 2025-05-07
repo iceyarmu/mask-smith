@@ -137,7 +137,21 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(disposable, hoverProvider, onActiveEditorChanged, copyCommand);
+    // 监听文档内容变化，更新装饰器
+    const onTextChanged = vscode.workspace.onDidChangeTextDocument(event => {
+        const editor = vscode.window.activeTextEditor;
+        if (editor && event.document === editor.document) {
+            updateDecoration(editor);
+        }
+    });
+
+    context.subscriptions.push(
+        disposable,
+        hoverProvider,
+        onActiveEditorChanged,
+        copyCommand,
+        onTextChanged
+    );
 }
 
 export function deactivate() {
