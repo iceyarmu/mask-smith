@@ -1,7 +1,7 @@
 {
   "name": "mask-smith",
-  "displayName": "mask-smith",
-  "description": "",
+  "displayName": "Mask Smith",
+  "description": "A VSCode extension for masking sensitive text with base64 encoding",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.99.0"
@@ -9,13 +9,21 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "mask-smith.helloWorld",
-        "title": "Hello World"
+        "command": "mask-smith.maskSelection",
+        "title": "Mask Selection",
+        "category": "Mask Smith"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "mask-smith.maskSelection",
+        "key": "ctrl+alt+m",
+        "mac": "cmd+alt+m",
+        "when": "editorHasSelection"
       }
     ]
   },
