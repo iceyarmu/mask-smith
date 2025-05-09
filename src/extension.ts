@@ -111,7 +111,7 @@ async function savePassword(password: string): Promise<PasswordData> {
         const encoder = new TextEncoder();
         const passwordBuffer = encoder.encode(password);
         const valueBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
-        const keyBuffer = await crypto.subtle.digest('SHA-256', valueBuffer);
+        const keyBuffer = (await crypto.subtle.digest('SHA-256', valueBuffer)).slice(0, 4);
         const valueBase64 = btoa(String.fromCharCode(...new Uint8Array(valueBuffer)));
         const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(keyBuffer)));
         await keytar.setPassword(SERVICE_NAME, keyBase64, valueBase64);
@@ -140,17 +140,21 @@ async function encryptText(text: string): Promise<string | null> {
         }
         const encoder = new TextEncoder();
         const textBuffer = encoder.encode(text);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', textBuffer);
+        const hashBuffer = (await crypto.subtle.digest('SHA-256', textBuffer)).slice(0, 12);
         const encryptKey = await crypto.subtle.importKey('raw', passwordData.valueBuffer, 'AES-GCM', false, ['encrypt']);
         const encryptedBuffer = await crypto.subtle.encrypt(
             {
                 name: 'AES-GCM',
-                iv: hashBuffer.slice(0, 12)
+                iv: hashBuffer
             },
             encryptKey,
             textBuffer
         );
-        const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(passwordData.keyBuffer), ...new Uint8Array(hashBuffer), ...new Uint8Array(encryptedBuffer)));
+        const encryptedBase64 = btoa(String.fromCharCode(
+            ...new Uint8Array(passwordData.keyBuffer),
+            ...new Uint8Array(hashBuffer),
+            ...new Uint8Array(encryptedBuffer)
+        ));
         return encryptedBase64;
     } catch (error) {
         console.error('加密失败:', error);
@@ -163,9 +167,9 @@ async function encryptText(text: string): Promise<string | null> {
 async function decryptText(encryptedBase64: string): Promise<string | null> {
     try {
         const encryptedBuffer = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-        const keyBuffer = encryptedBuffer.slice(0, 32);
-        const hashBuffer = encryptedBuffer.slice(32, 64);
-        const cipherText = encryptedBuffer.slice(64);
+        const keyBuffer = encryptedBuffer.slice(0, 4);
+        const hashBuffer = encryptedBuffer.slice(4, 16);
+        const cipherText = encryptedBuffer.slice(16);
         const keyBase64 = btoa(String.fromCharCode(...keyBuffer));
         const passwordData = await readPassword(keyBase64) || await inputPassword();
         if (!passwordData || passwordData.keyBase64 !== keyBase64) {
@@ -176,12 +180,12 @@ async function decryptText(encryptedBase64: string): Promise<string | null> {
         const decryptedBuffer = await crypto.subtle.decrypt(
             {
                 name: 'AES-GCM',
-                iv: hashBuffer.slice(0, 12)
+                iv: hashBuffer,
             },
             decryptKey,
             cipherText
         );
-        const decryptedHash = await crypto.subtle.digest('SHA-256', decryptedBuffer);
+        const decryptedHash = (await crypto.subtle.digest('SHA-256', decryptedBuffer)).slice(0, 12);
         if (!compareArrayBuffers(decryptedHash, hashBuffer)) {
             vscode.window.showErrorMessage('解密失败，密码可能不正确。');
             return null;
