@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as keytar from 'keytar';
+const Z85 = require('./Z85');
 
 // 常量
 const MASK_PATTERN = /<!MASK-SMITH:([^>]+)>/g;
@@ -46,6 +47,13 @@ function compareArrayBuffers(buf1: ArrayBuffer, buf2: ArrayBuffer): boolean {
     return true;
 }
 
+// 修复encodeURIComponent函数
+function fixedEncodeURIComponent(str: string): string {
+  return encodeURIComponent(str).replace(/[!'()*]/g, function(c) {
+    return '%' + c.charCodeAt(0).toString(16);
+  });
+}
+
 // 获取默认Key
 async function getDefaultKey(): Promise<string | null> {
     try {
@@ -62,8 +70,8 @@ async function readPassword(keyBase64: string): Promise<PasswordData> {
     try {
         const passwordBase64 = await keytar.getPassword(SERVICE_NAME, keyBase64);
         if (passwordBase64) {
-            const keyBuffer = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0));
-            const valueBuffer = Uint8Array.from(atob(passwordBase64), c => c.charCodeAt(0));
+            const keyBuffer = Z85.decode(keyBase64);
+            const valueBuffer = Z85.decode(passwordBase64);
             return {
                 keyBuffer,
                 valueBuffer,
@@ -112,8 +120,8 @@ async function savePassword(password: string): Promise<PasswordData> {
         const passwordBuffer = encoder.encode(password);
         const valueBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
         const keyBuffer = (await crypto.subtle.digest('SHA-256', valueBuffer)).slice(0, 4);
-        const valueBase64 = btoa(String.fromCharCode(...new Uint8Array(valueBuffer)));
-        const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(keyBuffer)));
+        const valueBase64 = Z85.encode(valueBuffer);
+        const keyBase64 = Z85.encode(keyBuffer);
         await keytar.setPassword(SERVICE_NAME, keyBase64, valueBase64);
         await keytar.setPassword(SERVICE_NAME, DEFAULT_KEY, keyBase64);
         currentKey = keyBase64;
@@ -150,11 +158,17 @@ async function encryptText(text: string): Promise<string | null> {
             encryptKey,
             textBuffer
         );
-        const encryptedBase64 = btoa(String.fromCharCode(
-            ...new Uint8Array(passwordData.keyBuffer),
-            ...new Uint8Array(hashBuffer),
-            ...new Uint8Array(encryptedBuffer)
-        ));
+        const encryptedBase64 = Z85.encode(
+            passwordData.keyBuffer,
+            hashBuffer,
+            encryptedBuffer
+        );
+        // 验证解密
+        const decryptedText = await decryptText(encryptedBase64);
+        if (decryptedText !== text) {
+            vscode.window.showErrorMessage('加密失败，解密结果与原文本不一致。');
+            return null;
+        }
         return encryptedBase64;
     } catch (error) {
         console.error('加密失败:', error);
@@ -166,11 +180,11 @@ async function encryptText(text: string): Promise<string | null> {
 // 解密文本
 async function decryptText(encryptedBase64: string): Promise<string | null> {
     try {
-        const encryptedBuffer = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+        const encryptedBuffer = Z85.decode(encryptedBase64);
         const keyBuffer = encryptedBuffer.slice(0, 4);
         const hashBuffer = encryptedBuffer.slice(4, 16);
         const cipherText = encryptedBuffer.slice(16);
-        const keyBase64 = btoa(String.fromCharCode(...keyBuffer));
+        const keyBase64 = Z85.encode(keyBuffer);
         const passwordData = await readPassword(keyBase64) || await inputPassword();
         if (!passwordData || passwordData.keyBase64 !== keyBase64) {
             vscode.window.showErrorMessage('密码无效，无法解密文本。');
@@ -204,7 +218,7 @@ function getcurrentDecoration(): vscode.TextEditorDecorationType {
     if (!currentDecoration) {
         currentDecoration = vscode.window.createTextEditorDecorationType({
             after: {
-                contentText: "[🔐 已加密]",
+                contentText: "[🔐已加密]",
                 backgroundColor: new vscode.ThemeColor('button.background'),
                 color: new vscode.ThemeColor('button.foreground'),
                 margin: '0 0 0 3px',
@@ -311,8 +325,8 @@ function provideMaskHover(document: vscode.TextDocument, position: vscode.Positi
             const mdString = new vscode.MarkdownString();
             mdString.isTrusted = true; // 允许命令链接
             mdString.supportHtml = true; // 允许HTML
-            
-            mdString.appendMarkdown(`[📋 复制到剪贴板](command:mask-smith.copyContent?${encodeURIComponent(JSON.stringify(encoded))})`);
+            const md = `[📋 复制到剪贴板](command:mask-smith.copyContent?${fixedEncodeURIComponent(JSON.stringify(encoded))})`
+            mdString.appendMarkdown(md);
             
             return new vscode.Hover(mdString);
         }
