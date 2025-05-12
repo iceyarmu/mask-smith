@@ -2,7 +2,7 @@
   "name": "mask-smith",
   "displayName": "Mask Smith",
   "description": "A VSCode extension for protecting sensitive information using AES encryption",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "Yarmu",
   "engines": {
     "vscode": "^1.99.0"
@@ -61,7 +61,6 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "keytar": "^7.9.0"
   },
   "repository": {
     "type": "git",

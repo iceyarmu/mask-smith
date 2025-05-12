@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as keytar from 'keytar';
 import { t } from './locales';
 import * as Z85 from './Z85';
 
@@ -7,7 +6,6 @@ import * as Z85 from './Z85';
 const MASK_PATTERN = /<!MASK-SMITH:([^>]+)>/g;
 const DEBOUNCE_DELAY = 300; // 防抖延迟（毫秒）
 const SUPPORTED_LANGUAGES = ['plaintext', 'markdown']; // 支持的文件类型
-const SERVICE_NAME = 'mask-smith'; // 服务名称
 
 // 用于存储当前显示原文的装饰器
 let currentDecoration: vscode.TextEditorDecorationType | undefined;
@@ -57,7 +55,8 @@ function fixedEncodeURIComponent(str: string): string {
 // 从KeyChain中读取密码
 async function readPassword(keyBase64: string): Promise<PasswordData> {
     try {
-        const passwordBase64 = await keytar.getPassword(SERVICE_NAME, keyBase64);
+        const secrets = context.secrets;
+        const passwordBase64 = await secrets.get(keyBase64);
         if (passwordBase64) {
             const keyBuffer = Z85.decode(keyBase64);
             const valueBuffer = Z85.decode(passwordBase64);
@@ -113,7 +112,8 @@ async function inputPassword(): Promise<PasswordData> {
 
         // 保存密码
         const valueBase64 = Z85.encode(valueBuffer);
-        await keytar.setPassword(SERVICE_NAME, keyBase64, valueBase64);
+        const secrets = context.secrets;
+        await secrets.store(keyBase64, valueBase64);
         currentKey = keyBase64;
         return {
             keyBuffer,
@@ -270,8 +270,9 @@ async function maskSelection() {
     }
 
     // 检查文件类型
+    console.log('Current file type:', editor.document.languageId);
     if (!SUPPORTED_LANGUAGES.includes(editor.document.languageId)) {
-        vscode.window.showWarningMessage(t('errors.unsupportedFileType'));
+        vscode.window.showWarningMessage(`${t('errors.unsupportedFileType')} (${editor.document.languageId})`);
         return;
     }
 
@@ -325,7 +326,10 @@ function provideMaskHover(document: vscode.TextDocument, position: vscode.Positi
     return null;
 }
 
-export function activate(context: vscode.ExtensionContext) {
+let context: vscode.ExtensionContext;
+
+export function activate(_context: vscode.ExtensionContext) {
+    context = _context;
     console.log(t('messages.activation'));
 
     // 注册Mask Selection命令
