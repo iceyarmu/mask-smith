@@ -15,7 +15,8 @@ export default {
             decryptionError: 'Decryption failed, please check password or text.',
             setPasswordFailed: 'Failed to set password:',
             unsupportedFileType: 'Mask Smith extension only supports txt and markdown files',
-            selectText: 'Please select text to encrypt'
+            selectText: 'Please select text to encrypt',
+            unsupportedVersion: 'Unsupported version, please update to the latest version.',
         },
         prompts: {
             enterPassword: 'Enter encryption password',

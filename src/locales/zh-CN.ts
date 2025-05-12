@@ -15,7 +15,8 @@ export default {
             decryptionError: '解密失败，请检查密码或文本。',
             setPasswordFailed: '设置密码失败:',
             unsupportedFileType: 'Mask Smith 插件仅支持 txt 和 markdown 文件',
-            selectText: '请先选择要加密的文本'
+            selectText: '请先选择要加密的文本',
+            unsupportedVersion: '不支持的版本，请更新到最新版本。',
         },
         prompts: {
             enterPassword: '请输入加密密码',

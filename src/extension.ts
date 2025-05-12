@@ -120,7 +120,7 @@ async function savePassword(password: string): Promise<PasswordData> {
         const encoder = new TextEncoder();
         const passwordBuffer = encoder.encode(password);
         const valueBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
-        const keyBuffer = (await crypto.subtle.digest('SHA-256', valueBuffer)).slice(0, 4);
+        const keyBuffer = (await crypto.subtle.digest('SHA-256', valueBuffer)).slice(0, 3);
         const valueBase64 = Z85.encode(valueBuffer);
         const keyBase64 = Z85.encode(keyBuffer);
         await keytar.setPassword(SERVICE_NAME, keyBase64, valueBase64);
@@ -160,8 +160,9 @@ async function encryptText(text: string): Promise<string | null> {
             textBuffer
         );
         const encryptedBase64 = Z85.encode(
-            passwordData.keyBuffer,
             hashBuffer,
+            passwordData.keyBuffer,
+            [0x00],
             encryptedBuffer
         );
         // 验证解密
@@ -182,8 +183,13 @@ async function encryptText(text: string): Promise<string | null> {
 async function decryptText(encryptedBase64: string): Promise<string | null> {
     try {
         const encryptedBuffer = Z85.decode(encryptedBase64);
-        const keyBuffer = encryptedBuffer.slice(0, 4);
-        const hashBuffer = encryptedBuffer.slice(4, 16);
+        const hashBuffer = encryptedBuffer.slice(0, 12);
+        const keyBuffer = encryptedBuffer.slice(12, 15);
+        const versionBuffer = new Uint8Array(encryptedBuffer.slice(15, 16));
+        if (versionBuffer[0] !== 0x00) {
+            vscode.window.showErrorMessage(t('errors.unsupportedVersion'));
+            return null;
+        }
         const cipherText = encryptedBuffer.slice(16);
         const keyBase64 = Z85.encode(keyBuffer);
         const passwordData = await readPassword(keyBase64) || await inputPassword();
