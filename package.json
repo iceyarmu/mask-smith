@@ -3,6 +3,7 @@
   "displayName": "Mask Smith",
   "description": "A VSCode extension for protecting sensitive information using AES encryption",
   "version": "0.0.1",
+  "publisher": "Yarmu",
   "engines": {
     "vscode": "^1.99.0"
   },
@@ -61,5 +62,9 @@
   },
   "dependencies": {
     "keytar": "^7.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iceyarmu/mask-smith.git"
   }
 }
