@@ -236,24 +236,17 @@ function updateDecoration(editor: vscode.TextEditor) {
         return;
     }
 
-    const visibleRanges = editor.visibleRanges;
     const ranges: vscode.Range[] = [];
+    const text = editor.document.getText();
+    let match;
 
-    // 仅扫描可见区域
-    for (const visibleRange of visibleRanges) {
-        const text = editor.document.getText(visibleRange);
-        let match;
-        while ((match = MASK_PATTERN.exec(text)) !== null) {
-            const startPos = editor.document.positionAt(
-                match.index + editor.document.offsetAt(visibleRange.start)
-            );
-            const endPos = editor.document.positionAt(
-                match.index + match[0].length + editor.document.offsetAt(visibleRange.start)
-            );
-            ranges.push(new vscode.Range(startPos, endPos));
-        }
-        MASK_PATTERN.lastIndex = 0; // 重置正则表达式
+    // 扫描整个文档
+    while ((match = MASK_PATTERN.exec(text)) !== null) {
+        const startPos = editor.document.positionAt(match.index);
+        const endPos = editor.document.positionAt(match.index + match[0].length);
+        ranges.push(new vscode.Range(startPos, endPos));
     }
+    MASK_PATTERN.lastIndex = 0; // 重置正则表达式
 
     // 复用或创建装饰器
     const decoration = getcurrentDecoration();
@@ -402,21 +395,12 @@ export function activate(_context: vscode.ExtensionContext) {
         }
     });
 
-    // 监听编辑器可见范围变化
-    const onVisibleRangesChanged = vscode.window.onDidChangeTextEditorVisibleRanges(event => {
-        if (event.textEditor === vscode.window.activeTextEditor &&
-            SUPPORTED_LANGUAGES.includes(event.textEditor.document.languageId)) {
-            debouncedUpdateDecoration(event.textEditor);
-        }
-    });
-
     context.subscriptions.push(
         disposable,
         hoverProvider,
         onActiveEditorChanged,
         copyCommand,
         onTextChanged,
-        onVisibleRangesChanged,
         copySubscription
     );
 }
@@ -427,3 +411,4 @@ export function deactivate() {
         currentDecoration = undefined;
     }
 }
+
