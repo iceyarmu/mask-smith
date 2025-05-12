@@ -2,6 +2,12 @@
 
 All notable changes to the "Mask Smith" extension will be documented in this file.
 
+## [0.0.4] - 2025-05-12
+
+### Added
+- Support decryption when copying encrypted content
+- Support encryption using the last used encryption key
+
 ## [0.0.1] - 2025-05-12
 
 ### Added
