@@ -1,0 +1,4 @@
+{
+    "commands.maskSelection": "加密选中文本",
+    "commands.copyMaskedSelection": "复制加密文本"
+}

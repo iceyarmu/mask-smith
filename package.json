@@ -19,12 +19,12 @@
     "commands": [
       {
         "command": "mask-smith.maskSelection",
-        "title": "Mask Selection",
+        "title": "%commands.maskSelection%",
         "category": "Mask Smith"
       },
       {
         "command": "mask-smith.copy",
-        "title": "Copy Masked Selection",
+        "title": "%commands.copyMaskedSelection%",
         "category": "Mask Smith"
       }
     ],
