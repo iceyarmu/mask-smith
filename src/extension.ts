@@ -8,7 +8,6 @@ const MASK_PATTERN = /<!MASK-SMITH:([^>]+)>/g;
 const DEBOUNCE_DELAY = 300; // 防抖延迟（毫秒）
 const SUPPORTED_LANGUAGES = ['plaintext', 'markdown']; // 支持的文件类型
 const SERVICE_NAME = 'mask-smith'; // 服务名称
-const DEFAULT_KEY = 'default'; // 默认Key
 
 // 用于存储当前显示原文的装饰器
 let currentDecoration: vscode.TextEditorDecorationType | undefined;
@@ -53,17 +52,6 @@ function fixedEncodeURIComponent(str: string): string {
   return encodeURIComponent(str).replace(/[!'()*]/g, function(c) {
     return '%' + c.charCodeAt(0).toString(16);
   });
-}
-
-// 获取默认Key
-async function getDefaultKey(): Promise<string | null> {
-    try {
-        const defaultKey = currentKey || await keytar.getPassword(SERVICE_NAME, DEFAULT_KEY);
-        return defaultKey;
-    } catch (error) {
-        console.error(t('errors.getDefaultKeyFailed'), error);
-    }
-    return null;
 }
 
 // 读取密码
@@ -124,7 +112,6 @@ async function savePassword(password: string): Promise<PasswordData> {
         const valueBase64 = Z85.encode(valueBuffer);
         const keyBase64 = Z85.encode(keyBuffer);
         await keytar.setPassword(SERVICE_NAME, keyBase64, valueBase64);
-        await keytar.setPassword(SERVICE_NAME, DEFAULT_KEY, keyBase64);
         currentKey = keyBase64;
         return {
             keyBuffer,
@@ -141,12 +128,8 @@ async function savePassword(password: string): Promise<PasswordData> {
 // 加密文本
 async function encryptText(text: string): Promise<string | null> {
     try {
-        const defaultKey = await getDefaultKey();
-        const passwordData = defaultKey ? await readPassword(defaultKey) : await inputPassword();
-        if (!passwordData) {
-            vscode.window.showErrorMessage(t('errors.invalidPassword'));
-            return null;
-        }
+        const passwordData = await inputPassword();
+        if (!passwordData) return null;
         const encoder = new TextEncoder();
         const textBuffer = encoder.encode(text);
         const hashBuffer = (await crypto.subtle.digest('SHA-256', textBuffer)).slice(0, 12);
