@@ -73,7 +73,7 @@ async function readPassword(keyBase64: string): Promise<PasswordData> {
 }
 
 // 输入密码
-async function inputPassword(): Promise<PasswordData> {
+async function inputPassword(checkKeyBase64: string | null): Promise<PasswordData> {
     try {
         const password = await vscode.window.showInputBox({
             prompt: t('prompts.enterPassword'),
@@ -93,6 +93,12 @@ async function inputPassword(): Promise<PasswordData> {
         const keyBuffer = (await crypto.subtle.digest('SHA-256', valueBuffer)).slice(0, 3);
         const keyBase64 = Z85.encode(keyBuffer);
 
+        // 检查密码是否一致
+        if (checkKeyBase64 && checkKeyBase64 !== keyBase64) {
+            vscode.window.showErrorMessage(t('errors.passwordKeyMismatch'));
+            return null;
+        }
+
         // 如果已经存过密码，则不用再输一次
         const passwordData = await readPassword(keyBase64);
         if (passwordData && compareArrayBuffers(passwordData.valueBuffer, valueBuffer)) {
@@ -100,14 +106,16 @@ async function inputPassword(): Promise<PasswordData> {
         }
 
         // 再次确认密码
-        const confirmPassword = await vscode.window.showInputBox({
-            prompt: t('prompts.confirmPassword'),
-            password: true,
-            ignoreFocusOut: true
-        });
-        if (password !== confirmPassword) {
-            vscode.window.showErrorMessage(t('errors.passwordNotMatch'));
-            return null;
+        if (!checkKeyBase64) {
+            const confirmPassword = await vscode.window.showInputBox({
+                prompt: t('prompts.confirmPassword'),
+                password: true,
+                ignoreFocusOut: true
+            });
+            if (password !== confirmPassword) {
+                vscode.window.showErrorMessage(t('errors.passwordNotMatch'));
+                return null;
+            }
         }
 
         // 保存密码
@@ -129,7 +137,7 @@ async function inputPassword(): Promise<PasswordData> {
 // 加密文本
 async function encryptText(text: string): Promise<string | null> {
     try {
-        const passwordData = await inputPassword();
+        const passwordData = await inputPassword(null);
         if (!passwordData) return null;
         const encoder = new TextEncoder();
         const textBuffer = encoder.encode(text);
@@ -171,16 +179,13 @@ async function decryptText(encryptedBase64: string): Promise<string | null> {
         const keyBuffer = encryptedBuffer.slice(12, 15);
         const versionBuffer = new Uint8Array(encryptedBuffer.slice(15, 16));
         if (versionBuffer[0] !== 0x00) {
-            vscode.window.showErrorMessage(t('errors.unsupportedVersion'));
+            vscode.window.showErrorMessage(t('errors.unsupportedVersiopn'));
             return null;
         }
         const cipherText = encryptedBuffer.slice(16);
         const keyBase64 = Z85.encode(keyBuffer);
-        const passwordData = await readPassword(keyBase64) || await inputPassword();
-        if (!passwordData || passwordData.keyBase64 !== keyBase64) {
-            vscode.window.showErrorMessage(t('errors.invalidPasswordDecrypt'));
-            return null;
-        }
+        const passwordData = await readPassword(keyBase64) || await inputPassword(keyBase64);
+        if (!passwordData) return null;
         const decryptKey = await crypto.subtle.importKey('raw', passwordData.valueBuffer, 'AES-GCM', false, ['decrypt']);
         const decryptedBuffer = await crypto.subtle.decrypt(
             {
