@@ -20,7 +20,10 @@ export default {
         },
         prompts: {
             enterPassword: '请输入加密密码',
-            confirmPassword: '请再次输入密码以确认'
+            confirmPassword: '请再次输入密码以确认',
+            useLassPassword: '是否使用上次的秘钥加密？',
+            confirm: '是',
+            cancel: '否',
         },
         ui: {
             encrypted: '[🔐已加密]',

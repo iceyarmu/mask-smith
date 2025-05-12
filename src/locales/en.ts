@@ -20,7 +20,10 @@ export default {
         },
         prompts: {
             enterPassword: 'Enter encryption password',
-            confirmPassword: 'Re-enter password to confirm'
+            confirmPassword: 'Re-enter password to confirm',
+            useLassPassword: 'Do you want to use the last password for encryption?',
+            confirm: 'Yes',
+            cancel: 'No',
         },
         ui: {
             encrypted: '[🔐Encrypted]',

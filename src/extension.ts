@@ -6,6 +6,7 @@ import * as Z85 from './Z85';
 const MASK_PATTERN = /<!MASK-SMITH:([^>]+)>/g;
 const DEBOUNCE_DELAY = 300; // 防抖延迟（毫秒）
 const SUPPORTED_LANGUAGES = ['plaintext', 'markdown']; // 支持的文件类型
+const DEFAULT_KEY = 'default-key'; // 默认Key
 
 // 用于存储当前显示原文的装饰器
 let currentDecoration: vscode.TextEditorDecorationType | undefined;
@@ -57,8 +58,7 @@ function fixedEncodeURIComponent(str: string): string {
 // 从KeyChain中读取密码
 async function readPassword(keyBase64: string): Promise<PasswordData> {
     try {
-        const secrets = context.secrets;
-        const passwordBase64 = await secrets.get(keyBase64);
+        const passwordBase64 = await context.secrets.get(keyBase64);
         if (passwordBase64) {
             const keyBuffer = Z85.decode(keyBase64);
             const valueBuffer = Z85.decode(passwordBase64);
@@ -77,6 +77,28 @@ async function readPassword(keyBase64: string): Promise<PasswordData> {
 // 输入密码
 async function inputPassword(checkKeyBase64: string | null): Promise<PasswordData> {
     try {
+        // 询问用户是否使用上次的Key
+        if (!checkKeyBase64) {
+            const defaultKey = await context.secrets.get(DEFAULT_KEY);
+            if (defaultKey) {
+                const lastPasswordData = await readPassword(defaultKey);
+                if (lastPasswordData) {
+                    const useLastPassword = await vscode.window.showInformationMessage(
+                        t('prompts.useLassPassword'),
+                        { modal: true },
+                        { title: t('prompts.confirm'), isCloseAffordance: false },
+                        { title: t('prompts.cancel'), isCloseAffordance: false }
+                    );
+                    if (useLastPassword && useLastPassword.title === t('prompts.confirm')) {
+                        return lastPasswordData;
+                    } else if (useLastPassword === undefined) {
+                        return null;
+                    }
+                }
+            }
+        }
+
+        // 输入密码
         const password = await vscode.window.showInputBox({
             prompt: t('prompts.enterPassword'),
             password: true,
@@ -104,6 +126,10 @@ async function inputPassword(checkKeyBase64: string | null): Promise<PasswordDat
         // 如果已经存过密码，则不用再输一次
         const passwordData = await readPassword(keyBase64);
         if (passwordData && compareArrayBuffers(passwordData.valueBuffer, valueBuffer)) {
+            //保存成上次的Key
+            if (!checkKeyBase64) {
+                await context.secrets.store(DEFAULT_KEY, keyBase64);
+            }
             return passwordData;
         }
 
@@ -118,12 +144,14 @@ async function inputPassword(checkKeyBase64: string | null): Promise<PasswordDat
                 vscode.window.showErrorMessage(t('errors.passwordNotMatch'));
                 return null;
             }
+
+            //保存成上次的Key
+            await context.secrets.store(DEFAULT_KEY, keyBase64);
         }
 
         // 保存密码
         const valueBase64 = Z85.encode(valueBuffer);
-        const secrets = context.secrets;
-        await secrets.store(keyBase64, valueBase64);
+        await context.secrets.store(keyBase64, valueBase64);
         currentKey = keyBase64;
         return {
             keyBuffer,
@@ -270,7 +298,6 @@ async function maskSelection() {
     }
 
     // 检查文件类型
-    console.log('Current file type:', editor.document.languageId);
     if (!SUPPORTED_LANGUAGES.includes(editor.document.languageId)) {
         vscode.window.showWarningMessage(`${t('errors.unsupportedFileType')} (${editor.document.languageId})`);
         return;
