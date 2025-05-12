@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as keytar from 'keytar';
+import { t } from './locales';
 const Z85 = require('./Z85');
 
 // 常量
@@ -60,7 +61,7 @@ async function getDefaultKey(): Promise<string | null> {
         const defaultKey = currentKey || await keytar.getPassword(SERVICE_NAME, DEFAULT_KEY);
         return defaultKey;
     } catch (error) {
-        console.error('获取默认Key失败:', error);
+        console.error(t('errors.getDefaultKeyFailed'), error);
     }
     return null;
 }
@@ -79,7 +80,7 @@ async function readPassword(keyBase64: string): Promise<PasswordData> {
             };
         }
     } catch (error) {
-        console.error('获取密码失败:', error);
+        console.error(t('errors.getPasswordFailed'), error);
     }
     return await inputPassword();
 }
@@ -87,13 +88,13 @@ async function readPassword(keyBase64: string): Promise<PasswordData> {
 // 输入密码
 async function inputPassword(): Promise<PasswordData> {
     const newPassword = await vscode.window.showInputBox({
-        prompt: '请输入加密密码',
+        prompt: t('prompts.enterPassword'),
         password: true,
         ignoreFocusOut: true
     });
     if (newPassword) {
         const confirmPassword = await vscode.window.showInputBox({
-            prompt: '请再次输入密码以确认',
+            prompt: t('prompts.confirmPassword'),
             password: true,
             ignoreFocusOut: true
         });
@@ -102,13 +103,13 @@ async function inputPassword(): Promise<PasswordData> {
             if (result) {
                 return result;
             } else {
-                vscode.window.showErrorMessage('保存密码失败。');
+                vscode.window.showErrorMessage(t('errors.savePasswordFailed'));
             }
         } else {
-            vscode.window.showErrorMessage('两次输入的密码不一致。');
+            vscode.window.showErrorMessage(t('errors.passwordNotMatch'));
         }
     } else {
-        vscode.window.showErrorMessage('未输入密码。');
+        vscode.window.showErrorMessage(t('errors.noPassword'));
     }
     return null;
 }
@@ -132,7 +133,7 @@ async function savePassword(password: string): Promise<PasswordData> {
         };
     }
     catch (error) {
-        console.error('设置密码失败:', error);
+        console.error(t('errors.setPasswordFailed'), error);
     }
     return null;
 }
@@ -143,7 +144,7 @@ async function encryptText(text: string): Promise<string | null> {
         const defaultKey = await getDefaultKey();
         const passwordData = defaultKey ? await readPassword(defaultKey) : await inputPassword();
         if (!passwordData) {
-            vscode.window.showErrorMessage('密码无效，无法加密文本。');
+            vscode.window.showErrorMessage(t('errors.invalidPassword'));
             return null;
         }
         const encoder = new TextEncoder();
@@ -166,13 +167,13 @@ async function encryptText(text: string): Promise<string | null> {
         // 验证解密
         const decryptedText = await decryptText(encryptedBase64);
         if (decryptedText !== text) {
-            vscode.window.showErrorMessage('加密失败，解密结果与原文本不一致。');
+            vscode.window.showErrorMessage(t('errors.encryptionFailed'));
             return null;
         }
         return encryptedBase64;
     } catch (error) {
-        console.error('加密失败:', error);
-        vscode.window.showErrorMessage('加密失败，请检查密码或文本。');
+        console.error(t('errors.encryptionError'), error);
+        vscode.window.showErrorMessage(t('errors.encryptionError'));
     }
     return null;
 }
@@ -187,7 +188,7 @@ async function decryptText(encryptedBase64: string): Promise<string | null> {
         const keyBase64 = Z85.encode(keyBuffer);
         const passwordData = await readPassword(keyBase64) || await inputPassword();
         if (!passwordData || passwordData.keyBase64 !== keyBase64) {
-            vscode.window.showErrorMessage('密码无效，无法解密文本。');
+            vscode.window.showErrorMessage(t('errors.invalidPasswordDecrypt'));
             return null;
         }
         const decryptKey = await crypto.subtle.importKey('raw', passwordData.valueBuffer, 'AES-GCM', false, ['decrypt']);
@@ -201,14 +202,14 @@ async function decryptText(encryptedBase64: string): Promise<string | null> {
         );
         const decryptedHash = (await crypto.subtle.digest('SHA-256', decryptedBuffer)).slice(0, 12);
         if (!compareArrayBuffers(decryptedHash, hashBuffer)) {
-            vscode.window.showErrorMessage('解密失败，密码可能不正确。');
+            vscode.window.showErrorMessage(t('errors.decryptionFailed'));
             return null;
         }
         const decoder = new TextDecoder();
         return decoder.decode(decryptedBuffer);
     } catch (error) {
-        console.error('解密失败:', error);
-        vscode.window.showErrorMessage('解密失败，请检查密码或文本。');
+        console.error(t('errors.decryptionError'), error);
+        vscode.window.showErrorMessage(t('errors.decryptionError'));
     }
     return null;
 }
@@ -218,7 +219,7 @@ function getcurrentDecoration(): vscode.TextEditorDecorationType {
     if (!currentDecoration) {
         currentDecoration = vscode.window.createTextEditorDecorationType({
             after: {
-                contentText: "[🔐已加密]",
+                contentText: t('ui.encrypted'),
                 backgroundColor: new vscode.ThemeColor('button.background'),
                 color: new vscode.ThemeColor('button.foreground'),
                 margin: '0 0 0 3px',
@@ -280,13 +281,13 @@ async function maskSelection() {
 
     // 检查文件类型
     if (!SUPPORTED_LANGUAGES.includes(editor.document.languageId)) {
-        vscode.window.showWarningMessage('Mask Smith 插件仅支持 txt 和 markdown 文件');
+        vscode.window.showWarningMessage(t('errors.unsupportedFileType'));
         return;
     }
 
     const selection = editor.selection;
     if (selection.isEmpty) {
-        vscode.window.showWarningMessage('请先选择要加密的文本');
+        vscode.window.showWarningMessage(t('errors.selectText'));
         return;
     }
 
@@ -309,7 +310,7 @@ async function copyDecodedContent(encoded: string) {
     const decoded = await decryptText(encoded);
     if (!decoded) return;
     await vscode.env.clipboard.writeText(decoded);
-    vscode.window.showInformationMessage('已复制到剪贴板');
+    vscode.window.showInformationMessage(t('ui.copiedToClipboard'));
 }
 
 // 处理加密文本的Hover显示
@@ -325,7 +326,7 @@ function provideMaskHover(document: vscode.TextDocument, position: vscode.Positi
             const mdString = new vscode.MarkdownString();
             mdString.isTrusted = true; // 允许命令链接
             mdString.supportHtml = true; // 允许HTML
-            const md = `[📋 复制到剪贴板](command:mask-smith.copyContent?${fixedEncodeURIComponent(JSON.stringify(encoded))})`
+            const md = `[${t('ui.copyToClipboard')}](command:mask-smith.copyContent?${fixedEncodeURIComponent(JSON.stringify(encoded))})`
             mdString.appendMarkdown(md);
             
             return new vscode.Hover(mdString);
@@ -335,7 +336,7 @@ function provideMaskHover(document: vscode.TextDocument, position: vscode.Positi
 }
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('mask-smith插件已激活！');
+    console.log(t('messages.activation'));
 
     // 注册Mask Selection命令
     let disposable = vscode.commands.registerCommand('mask-smith.maskSelection', maskSelection);

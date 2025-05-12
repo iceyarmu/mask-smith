@@ -1,71 +1,72 @@
-# mask-smith README
+# Mask Smith
 
-This is the README for your extension "mask-smith". After writing up a brief description, we recommend including the following sections.
+A VS Code extension for protecting sensitive information using AES-GCM encryption.
 
-## Features
+## ✨ Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- 🔒 Strong encryption using AES-GCM algorithm
+- 🎯 Quick text encryption with selection
+- 👀 User-friendly visual indicators for encrypted content
+- 📋 One-click decryption to clipboard
+- 🔑 Secure password management
 
-For example if there is an image subfolder under your extension project workspace:
+## 🚀 Quick Start
 
-\!\[feature X\]\(images/feature-x.png\)
+1. Open a text file (`.txt`) or Markdown file (`.md`) in VS Code
+2. Select the text you want to encrypt
+3. Trigger encryption using either:
+   - Keyboard shortcut: `Cmd+Alt+M` (Mac) / `Ctrl+Alt+M` (Windows/Linux)
+   - Right-click context menu: "Mask Selection"
+4. Enter and confirm your encryption password when prompted (first time only)
+5. Selected text will be encrypted and marked with a special indicator
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+## 💡 Usage Guide
 
-## Requirements
+### Encrypting Text
+1. Select the text you want to encrypt
+2. Use the keyboard shortcut or context menu to trigger encryption
+3. Encrypted text will be displayed as `<!MASK-SMITH:...>` with a 🔐 indicator
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+### Viewing Decrypted Content
+1. Hover over the encrypted text
+2. Click the "📋 Copy to Clipboard" button in the hover tooltip
+3. Decrypted content will be copied to your clipboard
 
-## Extension Settings
+## ⚙️ Supported File Types
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+- Plain text files (`.txt`)
+- Markdown files (`.md`)
 
-For example:
+## 🔒 Security Features
 
-This extension contributes the following settings:
+- AES-GCM encryption algorithm for data security
+- SHA-256 hashing for password processing
+- Secure key storage using system keychain
+- Encryption verification to ensure data integrity
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+## 🛡️ Privacy Statement
 
-## Known Issues
+- All encryption operations are performed locally
+- Passwords are stored only in system keychain
+- No network communication
+- No user data collection
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+## 📝 Release Notes
 
-## Release Notes
+### 0.0.1
+- Initial release
+- Text encryption/decryption support
+- Basic UI interactions
+- System keychain integration
 
-Users appreciate release notes as you update your extension.
+## 🤝 Contributing
 
-### 1.0.0
+Issues and PRs are welcome to help improve this extension!
 
-Initial release of ...
+## 📄 License
 
-### 1.0.1
+See the [LICENSE](LICENSE) file for details.
 
-Fixed issue #.
+## 🌏 Languages
 
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+- [简体中文](README_CN.md)
