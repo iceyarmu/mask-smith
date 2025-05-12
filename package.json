@@ -21,12 +21,22 @@
         "command": "mask-smith.maskSelection",
         "title": "Mask Selection",
         "category": "Mask Smith"
+      },
+      {
+        "command": "mask-smith.copy",
+        "title": "Copy Masked Selection",
+        "category": "Mask Smith"
       }
     ],
     "menus": {
       "editor/context": [
         {
           "command": "mask-smith.maskSelection",
+          "when": "editorHasSelection",
+          "group": "1_modification"
+        },
+        {
+          "command": "mask-smith.copy",
           "when": "editorHasSelection",
           "group": "1_modification"
         }
@@ -37,6 +47,12 @@
         "command": "mask-smith.maskSelection",
         "key": "ctrl+alt+m",
         "mac": "cmd+alt+m",
+        "when": "editorHasSelection"
+      },
+      {
+        "command": "mask-smith.copy",
+        "key": "ctrl+c",
+        "mac": "cmd+c",
         "when": "editorHasSelection"
       }
     ]

@@ -11,6 +11,8 @@ const SUPPORTED_LANGUAGES = ['plaintext', 'markdown']; // 支持的文件类型
 let currentDecoration: vscode.TextEditorDecorationType | undefined;
 // 存储当前Key
 let currentKey: string | null = null;
+// VSCode扩展上下文
+let context: vscode.ExtensionContext;
 
 // 存储密码数据
 type PasswordData = {
@@ -331,17 +333,46 @@ function provideMaskHover(document: vscode.TextDocument, position: vscode.Positi
     return null;
 }
 
-let context: vscode.ExtensionContext;
+// 处理加密内容复制
+async function handleCopy(text: string): Promise<boolean> {
+    let decryptedText = text;
+    for (const match of text.matchAll(MASK_PATTERN)) {
+        const encoded = match[1];
+        if (encoded) {
+            const decoded = await decryptText(encoded);
+            if (decoded) {
+                decryptedText = decryptedText.replace(match[0], decoded);
+            }
+        }
+    }
+    // 只有在有加密内容时才写入剪贴板
+    if (decryptedText !== text) {
+        await vscode.env.clipboard.writeText(decryptedText);
+        vscode.window.showInformationMessage(t('ui.copiedToClipboard'));
+        return true;
+    }
+    return false;
+}
 
 export function activate(_context: vscode.ExtensionContext) {
     context = _context;
     console.log(t('messages.activation'));
-
+    
     // 注册Mask Selection命令
     let disposable = vscode.commands.registerCommand('mask-smith.maskSelection', maskSelection);
 
     // 注册复制内容命令
     let copyCommand = vscode.commands.registerCommand('mask-smith.copyContent', copyDecodedContent);
+
+    // 注册新的复制命令
+    const copySubscription = vscode.commands.registerTextEditorCommand('mask-smith.copy', async (editor) => {
+        const selection = editor.selection;
+        if (!selection.isEmpty) {
+            const text = editor.document.getText(selection);
+            if (text && await handleCopy(text)) return;
+        }
+        await vscode.commands.executeCommand('editor.action.clipboardCopyAction');
+    });
 
     // 注册Hover Provider
     const hoverProvider = vscode.languages.registerHoverProvider(SUPPORTED_LANGUAGES, {
@@ -385,7 +416,8 @@ export function activate(_context: vscode.ExtensionContext) {
         onActiveEditorChanged,
         copyCommand,
         onTextChanged,
-        onVisibleRangesChanged
+        onVisibleRangesChanged,
+        copySubscription
     );
 }
 
