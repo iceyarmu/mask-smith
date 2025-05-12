@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as keytar from 'keytar';
 import { t } from './locales';
-const Z85 = require('./Z85');
+import * as Z85 from './Z85';
 
 // 常量
 const MASK_PATTERN = /<!MASK-SMITH:([^>]+)>/g;
