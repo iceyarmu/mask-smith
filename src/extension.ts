@@ -54,7 +54,7 @@ function fixedEncodeURIComponent(str: string): string {
   });
 }
 
-// 读取密码
+// 从KeyChain中读取密码
 async function readPassword(keyBase64: string): Promise<PasswordData> {
     try {
         const passwordBase64 = await keytar.getPassword(SERVICE_NAME, keyBase64);
@@ -70,47 +70,49 @@ async function readPassword(keyBase64: string): Promise<PasswordData> {
     } catch (error) {
         console.error(t('errors.getPasswordFailed'), error);
     }
-    return await inputPassword();
+    return null;
 }
 
 // 输入密码
 async function inputPassword(): Promise<PasswordData> {
-    const newPassword = await vscode.window.showInputBox({
-        prompt: t('prompts.enterPassword'),
-        password: true,
-        ignoreFocusOut: true
-    });
-    if (newPassword) {
+    try {
+        const password = await vscode.window.showInputBox({
+            prompt: t('prompts.enterPassword'),
+            password: true,
+            ignoreFocusOut: true
+        });
+
+        // 用户取消输入
+        if (!password) {
+            vscode.window.showErrorMessage(t('errors.noPassword'));
+            return null;
+        }
+        
+        const encoder = new TextEncoder();
+        const passwordBuffer = encoder.encode(password);
+        const valueBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
+        const keyBuffer = (await crypto.subtle.digest('SHA-256', valueBuffer)).slice(0, 3);
+        const keyBase64 = Z85.encode(keyBuffer);
+
+        // 如果已经存过密码，则不用再输一次
+        const passwordData = await readPassword(keyBase64);
+        if (passwordData && compareArrayBuffers(passwordData.valueBuffer, valueBuffer)) {
+            return passwordData;
+        }
+
+        // 再次确认密码
         const confirmPassword = await vscode.window.showInputBox({
             prompt: t('prompts.confirmPassword'),
             password: true,
             ignoreFocusOut: true
         });
-        if (newPassword === confirmPassword) {
-            const result = await savePassword(newPassword);
-            if (result) {
-                return result;
-            } else {
-                vscode.window.showErrorMessage(t('errors.savePasswordFailed'));
-            }
-        } else {
+        if (password !== confirmPassword) {
             vscode.window.showErrorMessage(t('errors.passwordNotMatch'));
+            return null;
         }
-    } else {
-        vscode.window.showErrorMessage(t('errors.noPassword'));
-    }
-    return null;
-}
 
-// 保存密码
-async function savePassword(password: string): Promise<PasswordData> {
-    try {
-        const encoder = new TextEncoder();
-        const passwordBuffer = encoder.encode(password);
-        const valueBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
-        const keyBuffer = (await crypto.subtle.digest('SHA-256', valueBuffer)).slice(0, 3);
+        // 保存密码
         const valueBase64 = Z85.encode(valueBuffer);
-        const keyBase64 = Z85.encode(keyBuffer);
         await keytar.setPassword(SERVICE_NAME, keyBase64, valueBase64);
         currentKey = keyBase64;
         return {
@@ -118,11 +120,10 @@ async function savePassword(password: string): Promise<PasswordData> {
             valueBuffer,
             keyBase64,
         };
-    }
-    catch (error) {
+    } catch (error) {
         console.error(t('errors.setPasswordFailed'), error);
+        return null;
     }
-    return null;
 }
 
 // 加密文本
