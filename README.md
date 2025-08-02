@@ -53,6 +53,11 @@ A VS Code extension for protecting sensitive information using AES-GCM encryptio
 
 ## 📝 Release Notes
 
+### 0.0.5
+- Fixed decoding parameter passing issue
+- Optimized document-wide scanning functionality
+- Added multilingual support for context menu
+
 ### 0.0.4
 - Support decryption when copying encrypted content
 - Support encryption using the last used encryption key

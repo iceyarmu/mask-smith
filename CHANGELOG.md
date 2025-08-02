@@ -2,6 +2,15 @@
 
 All notable changes to the "Mask Smith" extension will be documented in this file.
 
+## [0.0.5] - 2025-08-02
+
+### Fixed
+- Fixed decoding parameter passing issue
+
+### Improved
+- Optimized document-wide scanning functionality
+- Added multilingual support for context menu
+
 ## [0.0.4] - 2025-05-12
 
 ### Added
