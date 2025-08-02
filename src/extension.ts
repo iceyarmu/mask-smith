@@ -50,7 +50,7 @@ function compareArrayBuffers(buf1: ArrayBuffer, buf2: ArrayBuffer): boolean {
 
 // 修复encodeURIComponent函数
 function fixedEncodeURIComponent(str: string): string {
-  return encodeURIComponent(str).replace(/[!'()*]/g, function(c) {
+  return encodeURIComponent(str).replace(/[!'()*%]/g, function(c) {
     return '%' + c.charCodeAt(0).toString(16);
   });
 }
