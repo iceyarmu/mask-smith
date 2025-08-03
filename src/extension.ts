@@ -2,27 +2,42 @@ import * as vscode from 'vscode';
 import { t } from './locales';
 import * as Z85 from './Z85';
 
-// 常量
+// Constants
 const MASK_PATTERN = /<!MASK-SMITH:([^>]+)>/g;
-const DEBOUNCE_DELAY = 300; // 防抖延迟（毫秒）
-const SUPPORTED_LANGUAGES = ['plaintext', 'markdown']; // 支持的文件类型
-const DEFAULT_KEY = 'default-key'; // 默认Key
+const DEBOUNCE_DELAY = 300; // Debounce delay in milliseconds
+const SUPPORTED_LANGUAGES = ['plaintext', 'markdown'] as const;
+const DEFAULT_KEY = 'default-key';
+const ENCRYPTION_VERSION = 0x00;
+const KEY_SIZE = 3; // Key buffer size in bytes
+const IV_SIZE = 12; // Initialization vector size in bytes
 
-// 用于存储当前显示原文的装饰器
+// Global state
 let currentDecoration: vscode.TextEditorDecorationType | undefined;
-// 存储当前Key
 let currentKey: string | null = null;
-// VSCode扩展上下文
 let context: vscode.ExtensionContext;
 
-// 存储密码数据
-type PasswordData = {
+// Singleton instances for better performance
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+// Type definitions
+interface PasswordData {
     keyBase64: string;
     keyBuffer: ArrayBuffer;
     valueBuffer: ArrayBuffer;
-} | null;
+}
 
-// 防抖函数
+type PasswordDataOrNull = PasswordData | null;
+
+// Custom error class for better error handling
+class MaskSmithError extends Error {
+    constructor(message: string, public readonly code: string) {
+        super(message);
+        this.name = 'MaskSmithError';
+    }
+}
+
+// Utility function: Debounce implementation
 function debounce<T extends (...args: any[]) => any>(
     func: T,
     delay: number
@@ -34,29 +49,55 @@ function debounce<T extends (...args: any[]) => any>(
     };
 }
 
-// 比较两个ArrayBuffer是否相等
+// Utility function: Compare two ArrayBuffers for equality
 function compareArrayBuffers(buf1: ArrayBuffer, buf2: ArrayBuffer): boolean {
-    if (buf1.byteLength !== buf2.byteLength) return false;
+    if (buf1.byteLength !== buf2.byteLength) {return false;}
   
     const view1 = new Uint8Array(buf1);
     const view2 = new Uint8Array(buf2);
   
     for (let i = 0; i < view1.length; i++) {
-      if (view1[i] !== view2[i]) return false;
+      if (view1[i] !== view2[i]) {return false;}
     }
   
     return true;
 }
 
-// 修复encodeURIComponent函数
+// Utility function: Clear sensitive data from memory
+function clearSensitiveData(buffer: ArrayBuffer): void {
+    try {
+        const view = new Uint8Array(buffer);
+        crypto.getRandomValues(view); // Overwrite with random data
+        view.fill(0); // Then fill with zeros
+    } catch (error) {
+        // Best effort - some environments may not allow this
+        console.debug('Could not clear sensitive data from memory');
+    }
+}
+
+// Utility function: Enhanced encodeURIComponent for special characters
 function fixedEncodeURIComponent(str: string): string {
   return encodeURIComponent(str).replace(/[!'()*%]/g, function(c) {
     return '%' + c.charCodeAt(0).toString(16);
   });
 }
 
-// 从KeyChain中读取密码
-async function readPassword(keyBase64: string): Promise<PasswordData> {
+// Utility function: Validate encrypted text format
+function isValidEncryptedFormat(text: string): boolean {
+    const match = text.match(/^<!MASK-SMITH:([^>]+)>$/);
+    if (!match || !match[1]) {return false;}
+    
+    try {
+        // Try to decode to validate format
+        Z85.decode(match[1]);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// Security: Read password from secure storage
+async function readPassword(keyBase64: string): Promise<PasswordDataOrNull> {
     try {
         const passwordBase64 = await context.secrets.get(keyBase64);
         if (passwordBase64) {
@@ -69,22 +110,24 @@ async function readPassword(keyBase64: string): Promise<PasswordData> {
             };
         }
     } catch (error) {
-        console.error(t('errors.getPasswordFailed'), error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error(t('errors.getPasswordFailed'), errorMessage);
+        throw new MaskSmithError(t('errors.getPasswordFailed'), 'READ_PASSWORD_FAILED');
     }
     return null;
 }
 
-// 输入密码
-async function inputPassword(checkKeyBase64: string | null): Promise<PasswordData> {
+// Security: Handle password input and validation
+async function inputPassword(checkKeyBase64: string | null): Promise<PasswordDataOrNull> {
     try {
-        // 询问用户是否使用上次的Key
+        // Ask if user wants to use the last key
         if (!checkKeyBase64) {
             const defaultKey = await context.secrets.get(DEFAULT_KEY);
             if (defaultKey) {
                 const lastPasswordData = await readPassword(defaultKey);
                 if (lastPasswordData) {
                     const useLastPassword = await vscode.window.showInformationMessage(
-                        t('prompts.useLassPassword'),
+                        t('prompts.useLastPassword'),
                         { modal: true },
                         { title: t('prompts.confirm'), isCloseAffordance: false },
                         { title: t('prompts.cancel'), isCloseAffordance: false }
@@ -98,42 +141,47 @@ async function inputPassword(checkKeyBase64: string | null): Promise<PasswordDat
             }
         }
 
-        // 输入密码
+        // Enter password
         const password = await vscode.window.showInputBox({
             prompt: t('prompts.enterPassword'),
             password: true,
             ignoreFocusOut: true
         });
 
-        // 用户取消输入
+        // User cancelled input
         if (!password) {
             vscode.window.showErrorMessage(t('errors.noPassword'));
             return null;
         }
         
-        const encoder = new TextEncoder();
-        const passwordBuffer = encoder.encode(password);
+        const passwordBuffer = textEncoder.encode(password);
         const valueBuffer = await crypto.subtle.digest('SHA-256', passwordBuffer);
-        const keyBuffer = (await crypto.subtle.digest('SHA-256', valueBuffer)).slice(0, 3);
+        const keyBuffer = (await crypto.subtle.digest('SHA-256', valueBuffer)).slice(0, KEY_SIZE);
         const keyBase64 = Z85.encode(keyBuffer);
+        
+        // Clear sensitive password buffer from memory
+        clearSensitiveData(passwordBuffer);
 
-        // 检查密码是否一致
+        // Check if password matches
         if (checkKeyBase64 && checkKeyBase64 !== keyBase64) {
             vscode.window.showErrorMessage(t('errors.passwordKeyMismatch'));
             return null;
         }
 
-        // 如果已经存过密码，则不用再输一次
+        // If password already exists, no need to re-enter
         const passwordData = await readPassword(keyBase64);
         if (passwordData && compareArrayBuffers(passwordData.valueBuffer, valueBuffer)) {
-            //保存成上次的Key
+            // Save as the last used key
             if (!checkKeyBase64) {
                 await context.secrets.store(DEFAULT_KEY, keyBase64);
             }
+            // Clear temporary buffers
+            clearSensitiveData(valueBuffer);
+            clearSensitiveData(keyBuffer);
             return passwordData;
         }
 
-        // 再次确认密码
+        // Confirm password
         if (!checkKeyBase64) {
             const confirmPassword = await vscode.window.showInputBox({
                 prompt: t('prompts.confirmPassword'),
@@ -142,14 +190,17 @@ async function inputPassword(checkKeyBase64: string | null): Promise<PasswordDat
             });
             if (password !== confirmPassword) {
                 vscode.window.showErrorMessage(t('errors.passwordNotMatch'));
+                // Clear sensitive buffers on error
+                clearSensitiveData(valueBuffer);
+                clearSensitiveData(keyBuffer);
                 return null;
             }
 
-            //保存成上次的Key
+            // Save as the last used key
             await context.secrets.store(DEFAULT_KEY, keyBase64);
         }
 
-        // 保存密码
+        // Save password
         const valueBase64 = Z85.encode(valueBuffer);
         await context.secrets.store(keyBase64, valueBase64);
         currentKey = keyBase64;
@@ -159,19 +210,25 @@ async function inputPassword(checkKeyBase64: string | null): Promise<PasswordDat
             keyBase64,
         };
     } catch (error) {
-        console.error(t('errors.setPasswordFailed'), error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error(t('errors.setPasswordFailed'), errorMessage);
+        throw new MaskSmithError(t('errors.setPasswordFailed'), 'SET_PASSWORD_FAILED');
         return null;
     }
 }
 
-// 加密文本
+// Encryption: Encrypt text using AES-GCM
 async function encryptText(text: string): Promise<string | null> {
+    if (!text || text.length === 0) {
+        vscode.window.showWarningMessage(t('errors.emptyText') || 'Cannot encrypt empty text');
+        return null;
+    }
+    
     try {
         const passwordData = await inputPassword(null);
-        if (!passwordData) return null;
-        const encoder = new TextEncoder();
-        const textBuffer = encoder.encode(text);
-        const hashBuffer = (await crypto.subtle.digest('SHA-256', textBuffer)).slice(0, 12);
+        if (!passwordData) {return null;}
+        const textBuffer = textEncoder.encode(text);
+        const hashBuffer = (await crypto.subtle.digest('SHA-256', textBuffer)).slice(0, IV_SIZE);
         const encryptKey = await crypto.subtle.importKey('raw', passwordData.valueBuffer, 'AES-GCM', false, ['encrypt']);
         const encryptedBuffer = await crypto.subtle.encrypt(
             {
@@ -184,38 +241,54 @@ async function encryptText(text: string): Promise<string | null> {
         const encryptedBase64 = Z85.encode(
             hashBuffer,
             passwordData.keyBuffer,
-            [0x00],
+            [ENCRYPTION_VERSION],
             encryptedBuffer
         );
-        // 验证解密
+        // Verify encryption by decrypting
         const decryptedText = await decryptText(encryptedBase64);
         if (decryptedText !== text) {
             vscode.window.showErrorMessage(t('errors.encryptionFailed'));
+            // Clear sensitive buffers on error
+            clearSensitiveData(textBuffer);
+            clearSensitiveData(hashBuffer);
             return null;
         }
+        // Clear sensitive buffers after successful encryption
+        clearSensitiveData(textBuffer);
+        clearSensitiveData(hashBuffer);
         return encryptedBase64;
     } catch (error) {
-        console.error(t('errors.encryptionError'), error);
-        vscode.window.showErrorMessage(t('errors.encryptionError'));
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error(t('errors.encryptionError'), errorMessage);
+        
+        if (error instanceof MaskSmithError) {
+            vscode.window.showErrorMessage(error.message);
+        } else {
+            vscode.window.showErrorMessage(t('errors.encryptionError'));
+        }
     }
     return null;
 }
 
-// 解密文本
+// Decryption: Decrypt text using AES-GCM
 async function decryptText(encryptedBase64: string): Promise<string | null> {
+    if (!encryptedBase64 || encryptedBase64.length === 0) {
+        return null;
+    }
+    
     try {
         const encryptedBuffer = Z85.decode(encryptedBase64);
-        const hashBuffer = encryptedBuffer.slice(0, 12);
-        const keyBuffer = encryptedBuffer.slice(12, 15);
-        const versionBuffer = new Uint8Array(encryptedBuffer.slice(15, 16));
-        if (versionBuffer[0] !== 0x00) {
-            vscode.window.showErrorMessage(t('errors.unsupportedVersiopn'));
+        const hashBuffer = encryptedBuffer.slice(0, IV_SIZE);
+        const keyBuffer = encryptedBuffer.slice(IV_SIZE, IV_SIZE + KEY_SIZE);
+        const versionBuffer = new Uint8Array(encryptedBuffer.slice(IV_SIZE + KEY_SIZE, IV_SIZE + KEY_SIZE + 1));
+        if (versionBuffer[0] !== ENCRYPTION_VERSION) {
+            vscode.window.showErrorMessage(t('errors.unsupportedVersion'));
             return null;
         }
-        const cipherText = encryptedBuffer.slice(16);
+        const cipherText = encryptedBuffer.slice(IV_SIZE + KEY_SIZE + 1);
         const keyBase64 = Z85.encode(keyBuffer);
         const passwordData = await readPassword(keyBase64) || await inputPassword(keyBase64);
-        if (!passwordData) return null;
+        if (!passwordData) {return null;}
         const decryptKey = await crypto.subtle.importKey('raw', passwordData.valueBuffer, 'AES-GCM', false, ['decrypt']);
         const decryptedBuffer = await crypto.subtle.decrypt(
             {
@@ -225,22 +298,34 @@ async function decryptText(encryptedBase64: string): Promise<string | null> {
             decryptKey,
             cipherText
         );
-        const decryptedHash = (await crypto.subtle.digest('SHA-256', decryptedBuffer)).slice(0, 12);
+        const decryptedHash = (await crypto.subtle.digest('SHA-256', decryptedBuffer)).slice(0, IV_SIZE);
         if (!compareArrayBuffers(decryptedHash, hashBuffer)) {
             vscode.window.showErrorMessage(t('errors.decryptionFailed'));
+            // Clear sensitive buffer on error
+            clearSensitiveData(decryptedBuffer);
             return null;
         }
-        const decoder = new TextDecoder();
-        return decoder.decode(decryptedBuffer);
+        const result = textDecoder.decode(decryptedBuffer);
+        // Clear sensitive buffer after use
+        clearSensitiveData(decryptedBuffer);
+        return result;
     } catch (error) {
-        console.error(t('errors.decryptionError'), error);
-        vscode.window.showErrorMessage(t('errors.decryptionError'));
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error(t('errors.decryptionError'), errorMessage);
+        
+        if (error instanceof MaskSmithError) {
+            vscode.window.showErrorMessage(error.message);
+        } else if (error instanceof DOMException && error.name === 'OperationError') {
+            vscode.window.showErrorMessage(t('errors.wrongPassword') || 'Incorrect password');
+        } else {
+            vscode.window.showErrorMessage(t('errors.decryptionError'));
+        }
     }
     return null;
 }
 
-// 获取按钮装饰器（单例模式）
-function getcurrentDecoration(): vscode.TextEditorDecorationType {
+// UI: Get or create decoration for encrypted text (singleton pattern)
+function getCurrentDecoration(): vscode.TextEditorDecorationType {
     if (!currentDecoration) {
         currentDecoration = vscode.window.createTextEditorDecorationType({
             after: {
@@ -251,15 +336,15 @@ function getcurrentDecoration(): vscode.TextEditorDecorationType {
                 width: 'fit-content',
                 height: '20px'
             },
-            textDecoration: 'none; display: none;' // 隐藏原文本
+            textDecoration: 'none; display: none;' // Hide original text
         });
     }
     return currentDecoration;
 }
 
-// 优化的装饰器更新函数
-function updateDecoration(editor: vscode.TextEditor) {
-    // 如果编辑器无效，直接返回
+// UI: Update decorations for encrypted text
+function updateDecoration(editor: vscode.TextEditor): void {
+    // Early return if editor is invalid
     if (!editor || !editor.document) {
         return;
     }
@@ -268,18 +353,18 @@ function updateDecoration(editor: vscode.TextEditor) {
     const text = editor.document.getText();
     let match;
 
-    // 扫描整个文档
+    // Scan entire document for encrypted patterns
     while ((match = MASK_PATTERN.exec(text)) !== null) {
         const startPos = editor.document.positionAt(match.index);
         const endPos = editor.document.positionAt(match.index + match[0].length);
         ranges.push(new vscode.Range(startPos, endPos));
     }
-    MASK_PATTERN.lastIndex = 0; // 重置正则表达式
+    MASK_PATTERN.lastIndex = 0; // Reset regex state
 
-    // 复用或创建装饰器
-    const decoration = getcurrentDecoration();
+    // Reuse or create decoration
+    const decoration = getCurrentDecoration();
     
-    // 仅当有变化时才更新装饰
+    // Only update decorations when necessary
     if (ranges.length > 0) {
         editor.setDecorations(decoration, ranges);
     } else {
@@ -287,18 +372,18 @@ function updateDecoration(editor: vscode.TextEditor) {
     }
 }
 
-// 防抖后的装饰器更新函数
+// UI: Debounced decoration update
 const debouncedUpdateDecoration = debounce(updateDecoration, DEBOUNCE_DELAY);
 
-// 加密选中的文本
-async function maskSelection() {
+// Command: Encrypt selected text
+async function maskSelection(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         return;
     }
 
-    // 检查文件类型
-    if (!SUPPORTED_LANGUAGES.includes(editor.document.languageId)) {
+    // Validate file type
+    if (!SUPPORTED_LANGUAGES.includes(editor.document.languageId as typeof SUPPORTED_LANGUAGES[number])) {
         vscode.window.showWarningMessage(`${t('errors.unsupportedFileType')} (${editor.document.languageId})`);
         return;
     }
@@ -310,28 +395,40 @@ async function maskSelection() {
     }
 
     const text = editor.document.getText(selection);
+    
+    // Validate text length
+    if (text.length > 10000) {
+        const confirm = await vscode.window.showWarningMessage(
+            t('warnings.largeText') || 'The selected text is very large. Encryption may take a while. Continue?',
+            { modal: true },
+            'Yes',
+            'No'
+        );
+        if (confirm !== 'Yes') {return;}
+    }
+    
     const encoded = await encryptText(text);
-    if (!encoded) return;
+    if (!encoded) {return;}
     const maskedText = `<!MASK-SMITH:${encoded}>`;
 
-    // 替换选中文本
+    // Replace selected text with encrypted version
     await editor.edit(editBuilder => {
         editBuilder.replace(selection, maskedText);
     });
 
-    // 应用按钮装饰器
+    // Apply decoration
     updateDecoration(editor);
 }
 
-// 复制解密内容到剪贴板
-async function copyDecodedContent(encoded: string) {
+// Command: Copy decrypted content to clipboard
+async function copyDecodedContent(encoded: string): Promise<void> {
     const decoded = await decryptText(encoded);
-    if (!decoded) return;
+    if (!decoded) {return;}
     await vscode.env.clipboard.writeText(decoded);
     vscode.window.showInformationMessage(t('ui.copiedToClipboard'));
 }
 
-// 处理加密文本的Hover显示
+// UI: Provide hover information for encrypted text
 function provideMaskHover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | null {
     const range = document.getWordRangeAtPosition(position, /<!MASK-SMITH:[^>]+>/);
     if (range) {
@@ -340,11 +437,16 @@ function provideMaskHover(document: vscode.TextDocument, position: vscode.Positi
         if (match) {
             const encoded = match[1];
             
-            // 创建带有复制按钮的Markdown内容
+            // Validate encrypted format
+            if (!encoded || encoded.length === 0) {
+                return null;
+            }
+            
+            // Create Markdown content with copy button
             const mdString = new vscode.MarkdownString();
-            mdString.isTrusted = true; // 允许命令链接
-            mdString.supportHtml = true; // 允许HTML
-            const md = `[${t('ui.copyToClipboard')}](command:mask-smith.copyContent?${fixedEncodeURIComponent(JSON.stringify(encoded))})`
+            mdString.isTrusted = true; // Allow command links
+            mdString.supportHtml = true; // Allow HTML
+            const md = `[${t('ui.copyToClipboard')}](command:mask-smith.copyContent?${fixedEncodeURIComponent(JSON.stringify(encoded))})`;
             mdString.appendMarkdown(md);
             
             return new vscode.Hover(mdString);
@@ -353,20 +455,24 @@ function provideMaskHover(document: vscode.TextDocument, position: vscode.Positi
     return null;
 }
 
-// 处理加密内容复制
+// Command: Handle copy operation with automatic decryption
 async function handleCopy(text: string): Promise<boolean> {
+    if (!text || text.length === 0) {return false;}
+    
     let decryptedText = text;
+    let hasEncryptedContent = false;
     for (const match of text.matchAll(MASK_PATTERN)) {
         const encoded = match[1];
         if (encoded) {
+            hasEncryptedContent = true;
             const decoded = await decryptText(encoded);
             if (decoded) {
                 decryptedText = decryptedText.replace(match[0], decoded);
             }
         }
     }
-    // 只有在有加密内容时才写入剪贴板
-    if (decryptedText !== text) {
+    // Only write to clipboard if encrypted content was found
+    if (hasEncryptedContent && decryptedText !== text) {
         await vscode.env.clipboard.writeText(decryptedText);
         vscode.window.showInformationMessage(t('ui.copiedToClipboard'));
         return true;
@@ -376,48 +482,54 @@ async function handleCopy(text: string): Promise<boolean> {
 
 export function activate(_context: vscode.ExtensionContext) {
     context = _context;
-    console.log(t('messages.activation'));
+    console.log(t('messages.activation') || 'Mask Smith extension activated');
     
-    // 注册Mask Selection命令
+    // Validate environment
+    if (!crypto || !crypto.subtle) {
+        vscode.window.showErrorMessage('Crypto API not available. This extension requires a secure context.');
+        return;
+    }
+    
+    // Register mask selection command
     let disposable = vscode.commands.registerCommand('mask-smith.maskSelection', maskSelection);
 
-    // 注册复制内容命令
+    // Register copy content command
     let copyCommand = vscode.commands.registerCommand('mask-smith.copyContent', copyDecodedContent);
 
-    // 注册新的复制命令
+    // Register enhanced copy command
     const copySubscription = vscode.commands.registerTextEditorCommand('mask-smith.copy', async (editor) => {
         const selection = editor.selection;
         if (!selection.isEmpty) {
             const text = editor.document.getText(selection);
-            if (text && await handleCopy(text)) return;
+            if (text && await handleCopy(text)) {return;}
         }
         await vscode.commands.executeCommand('editor.action.clipboardCopyAction');
     });
 
-    // 注册Hover Provider
+    // Register hover provider
     const hoverProvider = vscode.languages.registerHoverProvider(SUPPORTED_LANGUAGES, {
         provideHover(document, position) {
             return provideMaskHover(document, position);
         }
     });
 
-    // 初始化当前编辑器的装饰器
+    // Initialize decorations for current editor
     if (vscode.window.activeTextEditor) {
         updateDecoration(vscode.window.activeTextEditor);
     }
 
-    // 监听编辑器变化，更新装饰器
+    // Listen for editor changes to update decorations
     const onActiveEditorChanged = vscode.window.onDidChangeActiveTextEditor(editor => {
-        if (editor && SUPPORTED_LANGUAGES.includes(editor.document.languageId)) {
+        if (editor && SUPPORTED_LANGUAGES.includes(editor.document.languageId as typeof SUPPORTED_LANGUAGES[number])) {
             updateDecoration(editor);
         }
     });
 
-    // 监听文档内容变化，使用防抖更新装饰器
+    // Listen for document changes with debounced decoration update
     const onTextChanged = vscode.workspace.onDidChangeTextDocument(event => {
         const editor = vscode.window.activeTextEditor;
         if (editor && event.document === editor.document &&
-            SUPPORTED_LANGUAGES.includes(event.document.languageId)) {
+            SUPPORTED_LANGUAGES.includes(event.document.languageId as typeof SUPPORTED_LANGUAGES[number])) {
             debouncedUpdateDecoration(editor);
         }
     });
@@ -433,9 +545,13 @@ export function activate(_context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+    // Clean up decorations
     if (currentDecoration) {
         currentDecoration.dispose();
         currentDecoration = undefined;
     }
+    
+    // Clear any cached key
+    currentKey = null;
 }
 
